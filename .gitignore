@@ -1,0 +1,22 @@
+# R-specific files
+.Rhistory
+.RData
+.Rproj.user/
+
+# Output objects
+*.rds
+*.RData
+*.log
+
+# Temporary or intermediate files
+*.tmp
+*.zip
+*.tar.gz
+
+# Data
+data/Twigger_Downloads/*
+!data/Twigger_Downloads/README.md
+
+# Results
+results/seurat_objects/
+results/figures/

@@ -1,8 +1,10 @@
 # TAM_scRNAseq_analysis
 
-This repository contains scripts and supporting files for analyzing single-cell RNA-seq datasets of tumor-associated macrophages (TAMs) from breast cancer.
+This repository contains code and data processing scripts for the analysis of tumor-associated macrophages (TAMs) using single-cell RNA-seq data.
 
-## Directory Structure
-- `scripts/`: R scripts used for data processing and analysis
-- `results/`: R scripts to generate figures and legends
-- `environment.yml`: Conda environment for reproducibility (in progress)
+## Contents
+
+- `scripts/`: R scripts and R Markdown files for data download, preprocessing, reclustering, annotation refinement, WGCNA and GSVA enrichment.
+- `data/`: Downloaded datasets (not stored in repo; see download scripts).
+- `results/`: Processed outputs like Seurat figures.
+

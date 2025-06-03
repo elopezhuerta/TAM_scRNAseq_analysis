@@ -1,0 +1,122 @@
+
+---
+title: "Manual Refinement of Cell Type Annotations - Wu Dataset"
+author: "Eric Lopez Huerta"
+date: "2025-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+This document refines and corroborates the cell type annotations of the Wu, 2021 dataset using SingleR and manual marker validation.
+
+# Load Required Libraries
+```{r}
+library(Seurat)
+library(ggplot2)
+library(RColorBrewer)
+library(SingleR)
+library(dplyr)
+library(cowplot)
+library(gridExtra)
+library(plyr)
+```
+# Load Input Data
+```{r}
+Annotated <- readRDS("data/objects/SnRAnnotWu_V4.rds")
+References <- readRDS("data/objects/singleR_ReferenceMatrices.rds")
+```
+
+# SingleR Automatic Annotation
+```{r}
+Idents(Annotated) <- Annotated$seurat_clusters
+Annotated$celltypes <- paste("SnR.", Annotated$celltypes, sep = "")
+Annotated$Annotation <- Annotated$celltypes
+
+reds <- brewer.pal(9, "YlOrRd")
+
+Annotated <- readRDS("data/objects/IntegratedWu_V4.rds")
+Annotated@meta.data[, c("celltype_subset", "celltype_minor", "celltype_major")] <- NULL
+
+hESCs <- GetAssayData(Annotated, assay="RNA", layer='data')
+bad_patterns <- 'RP[0-9]|^MT|[0-9][0-9][0-9][0-9]|^RPL|^RPS'
+a <- rownames(hESCs)[!grepl(bad_patterns, rownames(hESCs))]
+hESCs <- hESCs[a, ]
+
+pred.hesc <- SingleR(test = hESCs, ref = References, method = "single", assay.type.test=1, labels = References$label.main)
+
+# Adjust labels with low frequency
+df.labels <- as.data.frame(table(pred.hesc$pruned.labels))
+unknown <- as.character(df.labels[df.labels$Freq <= 100, 1])
+new.labels <- ifelse(pred.hesc$pruned.labels %in% unknown, "unknown", pred.hesc$pruned.labels)
+pred.hesc$labels <- new.labels
+
+plotScoreHeatmap(pred.hesc)
+saveRDS(pred.hesc, file = "results/singleR_results.rds")
+```
+# Manual Refinement of Annotations
+```{r}
+Clust.annot <- as.data.frame(cbind(rownames(pred.hesc), pred.hesc$labels))
+new.cluster.ids <- Clust.annot$V2
+names(new.cluster.ids) <- Clust.annot$V1
+Annotated$celltypes <- new.cluster.ids
+saveRDS(Annotated, file = "results/SnRAnnotWu_V4.rds")
+```
+
+# Identification of Marker Genes
+```{r}
+Cl.Mk <- FindAllMarkers(Annotated, assay = "RNA", slot = "data", logfc.threshold = 1, min.pct = 0.3, only.pos = TRUE)
+top15 <- Cl.Mk %>% group_by(cluster) %>% filter(avg_log2FC > 2) %>% slice_head(n = 15) %>% ungroup()
+```
+
+# Median Expression Calculation
+```{r}
+S.Obj <- SplitObject(Annotated, split.by = "seurat_clusters")
+med.list <- list()
+for (i in seq_along(S.Obj)) {
+  med.matrix <- GetAssayData(S.Obj[[i]], assay = "RNA", slot = "data")
+  SubMark <- AllMarkers[AllMarkers %in% rownames(med.matrix)]
+  med.list[[i]] <- apply(med.matrix[SubMark, ], 1, function(x) quantile(x, probs = 0.75))
+}
+names(med.list) <- names(S.Obj)
+med.df <- plyr::ldply(med.list, rbind)
+```
+
+# Lymphoid Cell Refinement
+```{r}
+# (Lymphoid marker identification, plots, cluster refinements)
+```
+
+# Myeloid Cell Refinement
+```{r}
+# (Myeloid marker identification, plots, cluster refinements)
+```
+
+# Fibroblast, Epithelial, Endothelial Cells Refinement
+```{r}
+# (Fibroblast, epithelial and endothelial cluster refinements)
+```
+
+# Identification of Cycling Cells
+```{r}
+# (Detection and relabeling of cycling cells)
+```
+
+# Reassign Remaining Cells
+```{r}
+# (Assign rare or unassigned clusters based on majority identity)
+```
+
+# Save Final Annotated Seurat Object
+```{r}
+saveRDS(Annotated, file = "results/WuBRCA_Annotated.rds")
+```
+
+# Visualization
+```{r}
+# (DimPlots, FeaturePlots and DotPlots for final visualization)
+```

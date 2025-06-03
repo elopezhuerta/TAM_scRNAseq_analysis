@@ -1,0 +1,141 @@
+
+---
+title: "TAMs Reclustering and Signature Analysis"
+author: "Eric Lopez Huerta"
+date: "2025-04-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+This R Markdown document processes the Wu BRCA dataset by reclustering TAMs, identifying enriched signatures, and performing pathway analysis. Outputs include refined Seurat objects and plots.
+
+# Load Libraries
+```{r}
+library(Seurat)
+library(RColorBrewer)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(stringr)
+library(gridExtra)
+library(org.Hs.eg.db)
+library(limma)
+library(cowplot)
+library(plyr)
+```
+
+# Load Input Data
+```{r}
+paleta <- brewer.pal(9, "YlOrRd")
+Annotated <- readRDS("data/objects/WuBRCA_Annotated.rds")
+my_seurat <- readRDS("data/objects/Wu_Seurat_V4.rds")
+```
+
+# Interactive Selection
+```{r}
+Sub_Annot <- subset(Annotated, subset = celltypes %in% c("TAMs", "Cycling TAMs"))
+TAMs.ID <- CellSelector(plot = DimPlot(Sub_Annot))
+Doublets <- colnames(Sub_Annot)[!colnames(Sub_Annot) %in% TAMs.ID]
+```
+
+# First Reclustering
+```{r}
+my_seurat@meta.data[, c("celltype_subset", "celltype_minor", "celltype_major")] <- NULL
+S.Obj <- my_seurat[, TAMs.ID]
+rm(my_seurat)
+
+samp.size <- sort(table(S.Obj$orig.ident), decreasing = TRUE)
+samp.name <- names(samp.size)[samp.size <= 200]
+first_half <- samp.name[1:(length(samp.name) / 2)]
+second_half <- rev(samp.name)[1:(length(samp.name) / 2)]
+fir_sec <- paste(first_half, second_half, sep = "_")
+
+S.Obj$TAMsample <- as.character(S.Obj$orig.ident)
+for (i in seq_along(first_half)) {
+  S.Obj$TAMsample <- ifelse(S.Obj$TAMsample %in% c(first_half[i], second_half[i]), fir_sec[i], S.Obj$TAMsample)
+}
+
+Merg_list <- SplitObject(S.Obj, split.by = "TAMsample")
+for (i in seq_along(Merg_list)) {
+  Merg_list[[i]] <- NormalizeData(Merg_list[[i]], verbose = FALSE)
+  Merg_list[[i]] <- FindVariableFeatures(Merg_list[[i]], selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+}
+
+Merg.anchors <- FindIntegrationAnchors(object.list = Merg_list, dims = 1:30)
+Merg.anchors <- IntegrateData(anchorset = Merg.anchors, dims = 1:30)
+DefaultAssay(Merg.anchors) <- "integrated"
+Merg.anchors <- ScaleData(Merg.anchors, verbose = FALSE)
+Merg.anchors <- RunPCA(Merg.anchors, npcs = 30, verbose = FALSE)
+Merg.anchors <- RunUMAP(Merg.anchors, reduction = "pca", dims = 1:30)
+Merg.anchors <- FindNeighbors(Merg.anchors, dims = 1:10)
+Merg.anchors <- FindClusters(Merg.anchors, resolution = 1)
+```
+
+# Refinement Based on Cluster Markers
+```{r}
+ClustMarkers <- FindAllMarkers(Merg.anchors, only.pos = TRUE, assay = "RNA", min.pct = 0.25, min.cells.feature = 15)
+DF_Mark <- ClustMarkers %>%
+  group_by(cluster) %>%
+  slice_max(n = 20, order_by = avg_log2FC)
+
+SIGNATURES <- lapply(split(DF_Mark, DF_Mark$cluster), function(df) head(df$gene, 10))
+names(SIGNATURES) <- sapply(SIGNATURES, function(x) x[1])
+
+Merg.anchors.scores <- AddModuleScore(Merg.anchors, features = SIGNATURES, ctrl = 20, name = "score", assay = "RNA")
+Annotated_Score <- AddModuleScore(Annotated, features = SIGNATURES, ctrl = 19, name = "score", assay = "RNA")
+```
+
+# Pathway Enrichment Analysis
+```{r}
+PathDF <- getKEGGPathwayNames(species = "hsa", remove.qualifier = TRUE)
+colnames(PathDF) <- c("ID", "Pathway")
+```
+
+# Second Reclustering
+```{r}
+BRCA_Refined <- SetIdent(Annotated, cells = Doublets, value = "Doublet")
+BRCA_Refined$celltypes <- Idents(BRCA_Refined)
+saveRDS(BRCA_Refined, file = "results/WuBRCA_Refined.rds")
+
+my_seurat <- readRDS("data/objects/Wu_Seurat_V4.rds")
+my_seurat@meta.data[, c("celltype_subset", "celltype_minor", "celltype_major")] <- NULL
+
+TAMs.ID <- WhichCells(BRCA_Refined, idents = c("TAMs", "Cycling TAMs"))
+TAMidents <- Idents(BRCA_Refined[, TAMs.ID])
+
+S.Obj <- my_seurat[, TAMs.ID]
+samp.size <- sort(table(S.Obj$orig.ident), decreasing = TRUE)
+samp.name <- names(samp.size)[samp.size <= 233]
+first_half <- samp.name[1:(length(samp.name) / 2)]
+second_half <- rev(samp.name)[1:(length(samp.name) / 2)]
+fir_sec <- paste(first_half, second_half, sep = "_")
+
+S.Obj$TAMsample <- as.character(S.Obj$orig.ident)
+for (ii in seq_along(first_half)) {
+  S.Obj$TAMsample <- ifelse(S.Obj$TAMsample %in% c(first_half[ii], second_half[ii]), fir_sec[ii], S.Obj$TAMsample)
+}
+
+Merg_list <- SplitObject(S.Obj, split.by = "TAMsample")
+for (i in seq_along(Merg_list)) {
+  Merg_list[[ii]] <- NormalizeData(Merg_list[[ii]], verbose = FALSE)
+  Merg_list[[ii]] <- FindVariableFeatures(Merg_list[[ii]], selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+}
+
+Merg.anchors <- FindIntegrationAnchors(object.list = Merg_list, dims = 1:30)
+Merg.anchors <- IntegrateData(anchorset = Merg.anchors, dims = 1:30)
+DefaultAssay(Merg.anchors) <- "integrated"
+Merg.anchors <- ScaleData(Merg.anchors, verbose = FALSE)
+Merg.anchors <- RunPCA(Merg.anchors, npcs = 30, verbose = FALSE)
+Merg.anchors <- RunUMAP(Merg.anchors, reduction = "pca", dims = 1:30)
+Merg.anchors <- FindNeighbors(Merg.anchors, dims = 1:10)
+Merg.anchors <- FindClusters(Merg.anchors, resolution = 0.5)
+
+Merg.anchors <- SetIdent(Merg.anchors, cells = names(TAMidents), value = as.character(TAMidents))
+Merg.anchors$celltypes <- Idents(Merg.anchors)
+saveRDS(Merg.anchors, file = "results/WuTAMs.rds")
+```
