@@ -13,14 +13,15 @@
 *.zip
 *.tar.gz
 
-
 # Data
 /data/Twigger_Downloads/*
-# Allow README to stay
 !/data/Twigger_Downloads/README.md
+
+/data/Wu_downloads_GSE176078/*
+!/data/Wu_downloads_GSE176078/README.md
 
 # Results
 # Ignore all Seurat objects
 /results/seurat_objects/*.rds
-# Allow this README to stay
 !/results/README.md
+

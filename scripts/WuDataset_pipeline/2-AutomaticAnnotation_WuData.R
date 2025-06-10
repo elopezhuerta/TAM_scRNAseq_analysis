@@ -18,7 +18,7 @@ library(patchwork)
 integrated_seurat <- readRDS(file = "results/seurat_objects/WuDataset/integrated_WuDataset.rds")
 
 # --- Load Annotation Reference (HPCA) ---
-hpca.reference <- celldex::HumanPrimaryCellAtlasData()
+hpca.reference <- HumanPrimaryCellAtlasData()
 
 # --- Extract normalized expression matrix ---
 norm_expr <- GetAssayData(integrated_seurat, assay = "RNA", slot = "data")

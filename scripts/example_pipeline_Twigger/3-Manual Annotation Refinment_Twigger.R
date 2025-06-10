@@ -460,7 +460,7 @@ annotated_seurat$Auto_Annotation <- NULL  # Remove redundant column
 # ============================================================================
 # Section 6: Final Save
 # ============================================================================
-saveRDS(annotated_seurat, file = "results/seurat_objects/TwiggerDataset/Final_Annotated.rds")
+saveRDS(annotated_seurat, file = "results/seurat_objects/TwiggerDataset/Refined_Annotated.rds")
 
 # ============================================================================
 # Section 7: Final Visualization

@@ -83,7 +83,7 @@ top15_markers <- cluster_markers %>%
   ungroup()
 
 
-# Calculate 75th pecentile upper quantile) of marker expression per cluster
+# Calculate 75th percentile (upper quantile) of marker expression per cluster
 # Split Seurat object by cluster identity
 cluster_list <- SplitObject(annotated_seurat, split.by = "seurat_clusters")
 
@@ -169,11 +169,16 @@ FeaturePlot(lymphoid_cells, features = c("IGHG4", "IGHG1", "IGHA1"), slot = "dat
 # ============================================================================
 # Section 1.1: CONCLUSION — Marker-Based Interpretation of Lymphoid Clusters
 # ----------------------------------------------------------------------------
-#  All lymphoid populations are located in cluster 1.
-#  B cells are correctly annotated by initial automatic labels.
-#  No plasma B cell population detected based on expression of IGHG/IGHA.
-#  T cell cluster includes a mix of subtypes (CD4+, CD8+, Tregs, NK),
-#  and requires subdivision based on canonical markers.
+# Lymphoid populations are distributed across clusters 2, 3, 12, 13, and 25.
+# B cells are correctly annotated by initial automatic labels (cluster 12).
+# No plasma B cell population detected based on expression of IGHG/IGHA.
+# T cell clusters include a mix of subtypes (CD4+, CD8+, Tregs, NK),
+# and require subdivision based on canonical markers.
+# Subtype assignments:
+#   - T CD8: clusters 2, 25
+#   - T CD4: clusters 3, 13
+#   - Tregs: cluster 13
+#   - NK cells: cluster 2
 # ============================================================================
 
 # --- Apply refined annotations ---
@@ -219,6 +224,15 @@ annotated_seurat$Annotation <- ifelse(
 annotated_seurat$Annotation <- ifelse(
   annotated_seurat$seurat_clusters == 12 & annotated_seurat$Annotation == "SnR.B_cell",
   "B cell",
+  annotated_seurat$Annotation
+)
+
+# Reinforce correct B cell label for cluster 
+plasma_cells <- WhichCells(lymphoid_cells, expression = IGHG4 >= 1 | IGHG1 >= 1)
+annotated_seurat$Annotation <- ifelse(
+  colnames(annotated_seurat) %in% plasma_cells &
+    annotated_seurat$seurat_clusters == 12,
+  "Plasmatic B cell",
   annotated_seurat$Annotation
 )
 
@@ -280,11 +294,16 @@ FeaturePlot(myeloid_subset, features = c(
 # ============================================================================
 # Section 2.1: CONCLUSION — Marker-Based Interpretation of Myeloid Clusters
 # ----------------------------------------------------------------------------
-#  Tissue macrophages are concentrated in clusters 4, 12, 17, partially in 10
-#  CD14+ monocytes appear in cluster 15, possibly mixed with epithelial cells (doublets)
-#  Conventional dendritic cells (cDCs) localized in cluster 12 and partially in 4
-#  No clear neutrophil or mast cell populations detected
+# TAMs are assigned in clusters 7, 11, 17, 18, and 23.
+# pDCs are defined in cluster 26.
+# Conventional dendritic cells (cDC1, cDC2, Mature DC) are assigned based on marker expression:
+#   - cDC1: CLEC9A+ cells in myeloid subset
+#   - cDC2: CD1C+, FCER1A+, or CLEC10A+ cells in myeloid subset
+#   - Mature DC: CCR7+ or BIRC3+ cells in myeloid subset
+# No explicit re-annotation for neutrophils or mast cells is performed in this section.
 # ============================================================================
+
+
 # --- Assign "Tissue macrophages" label to TAM-like clusters ---
 annotated_seurat$Annotation <- ifelse(
   annotated_seurat$Annotation %in% c("SnR.Macrophage", "SnR.Monocyte", "SnR.DC") &
@@ -375,10 +394,13 @@ stromal_subset <- subset(
 # ============================================================================
 # Section 3.1: CONCLUSION — Interpretation of Stromal Markers
 # ----------------------------------------------------------------------------
-#  Endothelial and epithelial cells are correctly annotated
-#  Cluster 9 is fully epithelial
-#  Pericytes found primarily in cluster 7 (and partially 17)
-#  Smooth muscle, tissue stem, and chondrocytes should be merged into fibroblasts
+# Endothelial and epithelial cells are reassigned based on cluster and prior annotation:
+#   - Epithelial cells assigned in clusters 0, 1, 4, 8, 9, 16, 21, 22, 27.
+#   - Endothelial cells assigned in clusters 6, 15, 19, 24.
+# Fibroblasts are assigned in clusters 5 and 10.
+# Pericytes are assigned in clusters 14 and 20, or if Auto_Annotation is SnR.Tissue_stem_cells.
+# Smooth muscle, tissue stem, and chondrocyte populations are not separately assigned,
+# but tissue stem cells are being merged into Pericytes via Auto_Annotation condition.
 # ============================================================================
 
 # --- Refine annotations based on marker expression and clustering ---
@@ -466,12 +488,15 @@ annotated_seurat$Annotation <- dplyr::recode(resolved_annotation, !!!majority_la
 
 # Step 4: Clean up metadata
 Idents(annotated_seurat) <- annotated_seurat$Annotation
-annotated_seurat$Auto_Annotation <- NULL  # Remove redundant column
-
+annotated_seurat$Auto_Annotation <- NULL  # Remove redundant column 
+#Remove those provided by the authors
+annotated_seurat$celltype_subset <- NULL
+annotated_seurat$celltype_minor <- NULL
+annotated_seurat$celltype_major <- NULL
 # ============================================================================
 # Section 6: Final Save
 # ============================================================================
-saveRDS(annotated_seurat, file = "results/seurat_objects/TwiggerDataset/Final_Annotated.rds")
+saveRDS(annotated_seurat, file = "results/seurat_objects/WuDataset/Refined_Annotated.rds")
 
 # ============================================================================
 # Section 7: Final Visualization
@@ -510,20 +535,31 @@ ggsave(filename = file.path(fig_dir, "Wu_UMAP_Annotation.pdf"),
 
 # --- DotPlot of marker expression across final annotations ---
 
-markers_to_display <- c(
-  "CD3D", "CD3E", "CD8A", "CD4", "IL7R", "FOXP3", "CTLA4",   # T cell subtypes
-  "NKG7", "KLRD1", "MS4A1", "CD19",                          # NK / B cells
-  "CD68", "CD14", "FCGR3A",                                  # TAMs
-  "CLEC9A", "CD1C", "CLEC10A", "LAMP3", "BIRC3",             # DCs
-  "COL1A1", "DCN", "RGS5", "ACTA2",                          # Fibroblast / Pericytes
-  "VWF", "PECAM1", "EPCAM", "KRT19"                          # Endo / Epithelial
+markers_to_display <- c("CD3D","CD3E",
+                        "CD8A", #T CD8
+                        "CD4","IL7R", #T CD4
+                        "FOXP3","CTLA4", #Tregs
+                        "NKG7","KLRD1", # NK cell
+                        "MS4A1","CD19", # B cell
+                        "IGHG4","IGHG1", # Plasmatic B cell
+                        "CD68","CD14","FCGR3A", #TAMs
+                        "CLEC9A","XCR1", #cDC1
+                        "CD1C","CLEC10A", #cDC2
+                        "CCR7","LAMP3",#Mature DC
+                        "LILRA4","CXCR3", #pDC
+                        "COL1A1","DCN", #Fibroblast
+                        "RGS5","ACTA2", #Pericytes
+                        "VWF","PECAM1", #Endothelial cells
+                        "EPCAM","KRT19", #Epithelial cells
+                        "MKI67","CDK1", #Cycling
+                        "FCGR3B","CXCR2", #Neutrophils
+                        "TPSAB1","CPA3" # Mast cells
 )
 
-annotation_order <- c(
-  "T CD8", "T CD4", "T regs", "NK cell", "B cell",
-  "Tissue macrophages", "cDC1", "cDC2", "Mature DC",
-  "Fibroblasts", "Pericytes", "Endothelial cells", "Epithelial cells"
-)
+annotation_order <- c("T CD8","T CD4","T regs","NK cell","B cell","Plasmatic B cell",
+                      "TAMs","cDC1","cDC2","Mature DC","pDC",
+                      "Fibroblasts","Pericytes","Endothelial cells", "Epithelial cells",
+                      "Cycling T CD8", "Cycling TAMs")
 
 final_dotplot <- DotPlot(
   annotated_seurat, features = markers_to_display,

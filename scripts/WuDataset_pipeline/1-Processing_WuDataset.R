@@ -76,9 +76,14 @@ plot_pre_qc <- FeatureScatter(
 # ============================================================================
 # Section 3: Subsampling to Reduce RAM Usage
 # ============================================================================
-# LEVERAGING REPORTED ANNOTATION BY AUTHORS ...
-# Targeted subsampling: 10k T-cells, 1k B-cells, 1k Plasmablasts, 1.5k PVL
 
+# LEVERAGING REPORTED ANNOTATION BY AUTHORS:
+# The authors provided the celltype_major annotation.
+# To reduce memory usage during integration, we subsample abundant cell types:
+# - Targeted subsampling: Keep 16,000 cells total across T-cells, B-cells, Plasmablasts, PVL.
+# - Remaining cell types (rare populations) are kept at full size.
+
+# --- Subset cells of abundant lineages ---
 cells_to_downsample <- subset(
   SeuratObject,
   subset = celltype_major%in%c("B-cells", "T-cells","Plasmablasts","PVL"))
