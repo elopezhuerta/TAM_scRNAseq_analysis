@@ -13,10 +13,14 @@
 *.zip
 *.tar.gz
 
+
 # Data
-data/Twigger_Downloads/*
-!data/Twigger_Downloads/README.md
+/data/Twigger_Downloads/*
+# Allow README to stay
+!/data/Twigger_Downloads/README.md
 
 # Results
-results/seurat_objects/
-results/figures/
+# Ignore all Seurat objects
+/results/seurat_objects/*.rds
+# Allow this README to stay
+!/results/README.md

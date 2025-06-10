@@ -11,7 +11,7 @@ This folder stores scRNA-seq datasets downloaded from the following public Array
 To populate this folder, run the script:
 
 ```r
-scripts/0-Download_PublicData.R
+scripts/example_pipeline_Twigger/0-Download_Public_TwiggerData.R
 ```
 
 The script will scrape the study directories and download only the selected sample files (e.g., NMC1–3, AA4–AC4).

@@ -4,7 +4,7 @@ This folder contains all scripts used in the TAM_scRNAseq_analysis project. Each
 
 ## Contents
 
-- `0-Download_PublicData.R`:  
+- `0-Download_Public_TwiggerData.R`:  
   Downloads scRNA-seq datasets from publicly available ArrayExpress studies (e.g., E-MTAB-9841, -10855, -10885). The datasets are from non tumoral mammary tissue and the Twigger dataset was used as example. Dataset will be saved in `data/Twigger_Downloads/`.
 
 - `1-Process_TwiggerData.Rmd`:  
