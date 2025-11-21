@@ -1,0 +1,189 @@
+---
+title: "WGCNA on Wu TAM transcriptome"
+author: "Eric López Huerta"
+date: "2025-03-05"
+output: html_document
+---
+
+# Introduction
+This script performs a Weighted Gene Co-expression Network Analysis (WGCNA) on a pre-annotated Tumor-Associated Macrophage (TAM) Seurat object from the Wu dataset. It includes data preparation, soft-threshold (power) selection, network construction, module detection/merging, eigengene computation, and export of module gene lists and module memberships (kME). The document is structured for reproducibility.
+
+# Reproducibility & Project Structure
+
+- **Expected input:** `results/seurat_objects/WuTAM_analysis/WuTAMs.rds` (Seurat object with TAM cells and RNA assay normalized data in the `data` slot).
+- **Outputs:**
+  - `results/seurat_objects/WuTAM_analysis/datKME.rds` (module membership per gene)
+  - `results/seurat_objects/WuTAM_analysis/ModuleGenes.rds` (list of genes per module)
+  - Inline figures for diagnostics (soft-threshold selection, dendrograms, eigengene network heatmaps)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE, fig.width = 7, fig.height = 5
+)
+set.seed(1L)
+
+# Create output folders if they don't exist
+out_dir <- "results/seurat_objects/WuTAM_analysis"
+if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+# Load libraries
+```{r libraries}
+library(Seurat)
+library(WGCNA)
+library(HelpersMG) # This allows transposition of sparse matrix
+library(flashClust)   # hierarchical clustering (average linkage)
+
+# Speed and reproducibility options for WGCNA
+options(stringsAsFactors = FALSE)
+
+```
+
+# Load Data
+Work with normalized counts as sparse matrix to save memory
+```{r load-data}
+# Load Seurat object with previously defined TAMs
+seurat_file <- file.path(out_dir, "WuTAMs.rds")
+seurat_obj <- readRDS(seurat_file)
+
+# Extract normalized expression (genes x cells in Seurat's RNA assay "data" slot)
+normalized_counts <- GetAssayData(seurat_obj, assay = "RNA", slot = "data")
+
+# WGCNA expects samples in rows and genes in columns
+expr_matrix <- t(normalized_counts)
+```
+
+# Basic Gene Filtering
+
+Filtering removes uninformative or structural genes and overly sparse genes to save computation time.
+```{r filtering}
+# Exclude structural/uninformative genes (ribosomal, mitochondrial, ORF,long numeric-like gene placeholders)
+exclusion_pattern <- "RP[0-9]|^MT|[0-9]{4}|^RPL|^RPS|[0-9]orf[0-9]|^ATP"
+keep_gene <- !grepl(exclusion_pattern, colnames(expr_matrix))
+expr_matrix <- expr_matrix[, keep_gene, drop = FALSE]
+
+# Remove genes with >=95% zero expression across cells
+max_zero_fraction <- 0.95
+# Detecting genes with zero expression in less than 95% of cells
+keep_sparse <- colSums(expr_matrix == 0) / nrow(expr_matrix) < max_zero_fraction
+expr_matrix <- expr_matrix[, keep_sparse, drop = FALSE]
+```
+
+# Soft-threshold (Power) Selection
+
+WGCNA requires choosing a soft-thresholding power that approximates a scale-free topology while maintaining reasonable mean connectivity. We use a signed network and **biweight midcorrelation (bicor)** for robustness to outliers.
+
+```{r soft-threshold}
+powers <- c(1:10, seq(12, 30, by = 2))
+sft <- pickSoftThreshold(
+  expr_matrix,
+  powerVector = powers,
+  networkType = "signed",
+  corFnc = "bicor"
+)
+```
+
+```{r soft-threshold-plots, fig.width=12, fig.height=5}
+par(mfrow = c(1, 2))
+# Scale-free topology fit index vs power
+plot(
+  sft$fitIndices[, 1],
+  -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],
+  xlab = "Soft Threshold (power)", ylab = "Scale Free Topology Model Fit, signed R^2",
+  type = "n", main = "Scale Independence"
+)
+text(sft$fitIndices[, 1], -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],
+     labels = powers, cex = 0.9, col = "red")
+abline(h = 0.80, col = "red", lty = 2) # Common heuristic cutoff
+
+# Mean connectivity vs power
+plot(
+  sft$fitIndices[, 1], sft$fitIndices[, 5],
+  xlab = "Soft Threshold (power)", ylab = "Mean Connectivity",
+  type = "n", main = "Mean Connectivity"
+)
+text(sft$fitIndices[, 1], sft$fitIndices[, 5], labels = powers, cex = 0.9, col = "red")
+par(mfrow = c(1, 1))
+```
+
+> **Recommendation.** Select the **lowest** power at which the scale-free topology fit (signed R²) crosses **0.8** (recommended by authors) while keeping mean connectivity non-negligible.
+
+```{r choose-power}
+# Example: set manually after inspecting the plots
+soft_power <- 12
+```
+
+# Network Construction & Module Detection
+
+We construct a **signed** adjacency matrix using bicor, convert it to a **Topological Overlap Matrix (TOM)** to reduce spurious associations, perform hierarchical clustering, and cut the tree with **dynamic tree cut**. Finally, we merge highly similar modules based on eigengene correlation.
+
+> **Note on memory/time.** The adjacency/TOM steps are O(G²) w.r.t. number of genes. For very large gene sets, consider `blockwiseModules()`.
+
+```{r wgcna-network, cache=TRUE}
+# Adjacency (signed)
+adjacency_matrix <- adjacency(expr_matrix, power = soft_power, type = "signed", corFnc = "bicor")
+
+# TOM-based dissimilarity (1 - TOM)
+diss_tom <- 1 - TOMsimilarityFromExpr(expr_matrix, power = soft_power, TOMType = "signed", corType = "bicor")
+
+# Gene dendrogram
+gene_tree <- flashClust(as.dist(diss_tom), method = "average")
+plot(gene_tree, main = "Gene Dendrogram (TOM dissimilarity)", xlab = "", sub = "", cex = 0.4)
+
+# Dynamic tree cut
+min_module_size <- 30
+module_labels_dynamic <- cutreeDynamic(
+  dendro = gene_tree,
+  distM = diss_tom,
+  deepSplit = 2,          # Intermediate sensitivity
+  pamRespectsDendro = FALSE,
+  minClusterSize = min_module_size
+)
+module_colors_dynamic <- labels2colors(module_labels_dynamic)
+
+# Merge similar modules (eigengene correlation threshold 0.80 => cut height 0.20)
+merge_cut_height <- 0.20
+merge_res <- mergeCloseModules(as.matrix(expr_matrix), module_colors_dynamic, cutHeight = merge_cut_height)
+module_colors_merged <- merge_res$colors
+
+# Visualize before/after merge
+plotDendroAndColors(
+  gene_tree,
+  cbind(module_colors_dynamic, module_colors_merged),
+  c("Dynamic Tree Cut", "Merged"),
+  dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05
+)
+
+# Adopt merged colors
+module_colors <- module_colors_merged
+```
+
+# Module Eigengenes and Similarity
+
+```{r eigengenes}
+me_list <- moduleEigengenes(as.matrix(expr_matrix), colors = module_colors)
+module_eigengenes <- me_list$eigengenes
+
+# Eigengene network heatmap (module similarity)
+plotEigengeneNetworks(
+  module_eigengenes, "",
+  marDendro = c(0, 4, 1, 2), marHeatmap = c(3, 4, 1, 2)
+)
+```
+
+# Module Membership (kME) and Gene Extraction
+
+```{r kme-and-export}
+# Calculate gene memebership (correlation of gene with module eigengene)
+kme_table <- signedKME(expr_matrix, module_eigengenes, outputColumnName = "")
+# Remove grey (unassigned) module if present
+kme_table <- kme_table[,colnames(kme_table)!="grey", drop=FALSE]
+
+# Extract gene vectors per module color
+ModuleGenes <- split(colnames(expr_matrix), module_colors)
+str(ModuleGenes)
+
+# Save results
+saveRDS(kme_table, file = file.path(out_dir, "datKME.rds"))
+saveRDS(ModuleGenes, file = file.path(out_dir, "ModuleGenes.rds"))
+```

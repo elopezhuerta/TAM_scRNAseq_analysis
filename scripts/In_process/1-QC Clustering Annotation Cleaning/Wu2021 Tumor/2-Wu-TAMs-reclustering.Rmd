@@ -1,8 +1,8 @@
 
 ---
 title: "TAMs Reclustering and Signature Analysis"
-author: "Eric Lopez Huerta"
-date: "2025-04-28"
+author: "elopezhuerta"
+date: "2025-11-04"
 output: html_document
 ---
 
@@ -12,7 +12,7 @@ opts_chunk$set(echo = TRUE)
 ```
 
 # Introduction
-This R Markdown document processes the Wu BRCA dataset by reclustering TAMs, identifying enriched signatures, and performing pathway analysis. Outputs include refined Seurat objects and plots.
+This R Markdown document processes the TAMs from Wu BRCA dataset by selecting and reclustering. Outputs include Seurat object including only TAMs.
 
 # Load Libraries
 ```{r}
@@ -31,9 +31,10 @@ library(plyr)
 
 # Load Input Data
 ```{r}
-paleta <- brewer.pal(9, "YlOrRd")
-Annotated <- readRDS("data/objects/WuBRCA_Annotated.rds")
-my_seurat <- readRDS("data/objects/Wu_Seurat_V4.rds")
+#red_pal <- brewer.pal(9, "YlOrRd")
+Annotated <- readRDS("results/seurat_objects/WuDataset/Refined_Annotated.rds")
+# Seurat object with unprocessed cells from all patients
+Raw_WuDataset <- readRDS("results/seurat_objects/WuDataset/Raw_WuDataset.rds")
 ```
 
 # Interactive Selection
@@ -45,9 +46,9 @@ Doublets <- colnames(Sub_Annot)[!colnames(Sub_Annot) %in% TAMs.ID]
 
 # First Reclustering
 ```{r}
-my_seurat@meta.data[, c("celltype_subset", "celltype_minor", "celltype_major")] <- NULL
-S.Obj <- my_seurat[, TAMs.ID]
-rm(my_seurat)
+Raw_WuDataset@meta.data[, c("celltype_subset", "celltype_minor", "celltype_major")] <- NULL
+S.Obj <- Raw_WuDataset[, TAMs.ID]
+rm(Raw_WuDataset)
 
 samp.size <- sort(table(S.Obj$orig.ident), decreasing = TRUE)
 samp.name <- names(samp.size)[samp.size <= 200]
@@ -102,13 +103,13 @@ BRCA_Refined <- SetIdent(Annotated, cells = Doublets, value = "Doublet")
 BRCA_Refined$celltypes <- Idents(BRCA_Refined)
 saveRDS(BRCA_Refined, file = "results/WuBRCA_Refined.rds")
 
-my_seurat <- readRDS("data/objects/Wu_Seurat_V4.rds")
-my_seurat@meta.data[, c("celltype_subset", "celltype_minor", "celltype_major")] <- NULL
+Raw_WuDataset <- readRDS("data/objects/Wu_Seurat_V4.rds")
+Raw_WuDataset@meta.data[, c("celltype_subset", "celltype_minor", "celltype_major")] <- NULL
 
 TAMs.ID <- WhichCells(BRCA_Refined, idents = c("TAMs", "Cycling TAMs"))
 TAMidents <- Idents(BRCA_Refined[, TAMs.ID])
 
-S.Obj <- my_seurat[, TAMs.ID]
+S.Obj <- Raw_WuDataset[, TAMs.ID]
 samp.size <- sort(table(S.Obj$orig.ident), decreasing = TRUE)
 samp.name <- names(samp.size)[samp.size <= 233]
 first_half <- samp.name[1:(length(samp.name) / 2)]
